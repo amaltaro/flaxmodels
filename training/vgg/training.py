@@ -19,8 +19,22 @@ from typing import Any
 import argparse
 import wandb
 import os
-
+import logging
+import sys
+import time
+import socket
 import flaxmodels as fm
+
+
+def setupLogger():
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s:%(levelname)s:%(module)s:%(message)s")
+    handler.setFormatter(formatter)
+    root.addHandler(handler)
+    return root
 
 
 def cross_entropy_loss(logits, labels):
@@ -151,7 +165,12 @@ def eval_step(state, batch):
 
 
 def train_and_evaluate(config):
+    logger = setupLogger()
+    tStart = time.time()
+    logger.info(f"Starting train_and_evaluate method at time: {tStart}")
     num_devices = jax.device_count()
+    logger.info(f"Hostname: {socket.gethostname()} using {num_devices} GPU devices")
+    logger.info(f"Local devices: {jax.local_devices()}")
 
     #--------------------------------------
     # Data
@@ -177,11 +196,13 @@ def train_and_evaluate(config):
         x = (x - 127.5) / 127.5 
         return x
 
+    logger.info(f"Loading train->imagenette/320px-v2")
     ds_train = tfds.load('imagenette/320px-v2',
                          split='train',
                          as_supervised=True,
                          shuffle_files=True,
                          data_dir=config.data_dir)
+    logger.info(f"Loading validation->imagenette/320px-v2")
     ds_val = tfds.load('imagenette/320px-v2',
                        split='validation',
                        as_supervised=True,
@@ -190,6 +211,7 @@ def train_and_evaluate(config):
 
     dataset_size = ds_train.__len__().numpy()
 
+    logger.info(f"Configuring dataloader")
     ds_train = configure_dataloader(ds_train, train_prerocess, num_devices, config.batch_size)
     ds_val = configure_dataloader(ds_val, val_prerocess, num_devices, config.batch_size)
 
@@ -214,6 +236,7 @@ def train_and_evaluate(config):
     #--------------------------------------
     # Initialize Models
     #--------------------------------------
+    logger.info(f"Initializing models for config.arch: {config.arch}")
     rng, init_rng, init_rng_dropout = jax.random.split(rng, num=3)
 
     if config.arch == 'vgg16':
@@ -229,6 +252,7 @@ def train_and_evaluate(config):
     #--------------------------------------
     steps_per_epoch = dataset_size // config.batch_size
 
+    logger.info(f"Initializing Optimizer with steps_per_epoch: {steps_per_epoch}")
 
     learning_rate_fn = lr_schedule.create_cosine_learning_rate_schedule(config.learning_rate,
                                                                         steps_per_epoch,
@@ -256,6 +280,8 @@ def train_and_evaluate(config):
     #--------------------------------------
     # Create train and eval steps
     #--------------------------------------
+    logger.info(f"Create train and eval steps")
+
     p_train_step = jax.pmap(functools.partial(train_step), axis_name='batch')
     p_eval_step = jax.pmap(eval_step, axis_name='batch')
 
@@ -267,6 +293,8 @@ def train_and_evaluate(config):
     best_val_acc = 0.0
 
     for epoch in range(epoch_offset, config.num_epochs):
+        logger.info(f"Training for epoch number: {epoch}")
+
         pbar = tqdm(total=dataset_size)
 
         accuracy = 0.0
@@ -306,6 +334,8 @@ def train_and_evaluate(config):
         #--------------------------------------
         # Validation 
         #--------------------------------------
+        logger.info(f"Validation for epoch number: {epoch}")
+
         accuracy = 0.0
         n = 0
         for image, label in ds_val.as_numpy_iterator():
@@ -333,4 +363,8 @@ def train_and_evaluate(config):
 
         if config.wandb:
             wandb.log({'validation/accuracy': jnp.mean(accuracy).item()}, step=step)
+
+    tEnd = time.time()
+    logger.info(f"Training completed {tEnd - tStart} seconds")
+
 
