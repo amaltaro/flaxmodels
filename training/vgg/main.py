@@ -8,8 +8,10 @@ import training
 def main():
     parser = argparse.ArgumentParser()
     # Paths
-    parser.add_argument('--work_dir', type=str, default='/export/scratch/mwright/projects/misc/imagenette', help='Directory for logging and checkpoints.')
-    parser.add_argument('--data_dir', type=str, default='/export/data/mwright/tensorflow_datasets', help='Directory for storing data.')
+    parser.add_argument('--work_dir', default='/afs/crc.nd.edu/user/a/amaltar2/jax_tests/imagenette',
+                        type=str, help='Directory for logging and checkpoints.')
+    parser.add_argument('--data_dir', default='/afs/crc.nd.edu/user/a/amaltar2/jax_tests/tensorflow_datasets',
+                        type=str, help='Directory for storing data.')
     parser.add_argument('--name', type=str, default='test', help='Name of this experiment.')
     parser.add_argument('--group', type=str, default='default', help='Group name of this experiment.')
     # Training
