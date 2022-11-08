@@ -171,6 +171,7 @@ def train_and_evaluate(config):
     num_devices = jax.device_count()
     logger.info(f"Hostname: {socket.gethostname()} using {num_devices} GPU devices")
     logger.info(f"Local devices: {jax.local_devices()}")
+    logger.info(f"Environment info: {jax.print_environment_info()}")
 
     #--------------------------------------
     # Data
