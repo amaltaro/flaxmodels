@@ -290,7 +290,6 @@ def train_and_evaluate(config):
     p_train_step = jax.pmap(functools.partial(train_step), axis_name='batch')
     p_eval_step = jax.pmap(eval_step, axis_name='batch')
 
-
     #--------------------------------------
     # Training 
     #--------------------------------------
@@ -300,13 +299,15 @@ def train_and_evaluate(config):
     timeSummary = []
     for epoch in range(epoch_offset, config.num_epochs):
         logger.info(f"Starting training for epoch number: {epoch}")
-        thisEpoch = {"epoch_num": 0, "epoch_time": 0.0, "valid_time": 0.0, "train_time": 0.0}
-        thisEpoch["epoch_num"] = epoch
+        #thisEpoch = {"epoch_num": 0, "epoch_time": 0.0, "valid_time": 0.0, "train_time": 0.0}
+        thisEpoch = {"epoch_num": epoch, "epoch_time": 0.0, "valid_time": 0.0, "train_time": 0.0,
+                     'validation/accuracy': 0, 'training/accuracy': 0}
         #pbar = tqdm(total=dataset_size)
 
         accuracy = 0.0
         n = 0
         epochStart = time.time()
+
         for image, label in ds_train.as_numpy_iterator():
             #pbar.update(num_devices * config.batch_size)
             image = image.astype(dtype)
@@ -327,14 +328,12 @@ def train_and_evaluate(config):
             state, metrics = p_train_step(state, {'image': image, 'label': label}, rng=rngs)
             accuracy += metrics['accuracy']
             n += 1
-
-            if step % config.log_every == 0:
-                if config.wandb:
-                    wandb.log({'training/accuracy': jnp.mean(metrics['accuracy']).item()}, step=step)
             step += 1
 
         #pbar.close()
         accuracy /= n
+        # update training time and accuracy for this epoch
+        thisEpoch["training/accuracy"] = jnp.mean(metrics['accuracy']).item()
         thisEpoch["train_time"] = round(time.time() - epochStart, 3)
 
         print(f'Epoch: {epoch}')
@@ -372,12 +371,14 @@ def train_and_evaluate(config):
             state = dataclasses.replace(state, **{'step': flax.jax_utils.replicate(step), 'epoch': flax.jax_utils.replicate(epoch)})
             save_checkpoint(state, jnp.mean(accuracy).item(), config.ckpt_dir)
 
-        if config.wandb:
-            wandb.log({'validation/accuracy': jnp.mean(accuracy).item()}, step=step)
+        # update validation accuracy for this epoch
+        thisEpoch["validation/accuracy"] = jnp.mean(accuracy).item()
 
         thisEpoch["epoch_time"] = round(time.time() - epochStart, 3)
         logger.info(f"Time performance summary for this EPOCH: {thisEpoch}\n")
         timeSummary.append(thisEpoch)
+        if config.wandb:
+            wandb.log(thisEpoch)
 
     totalEnd = time.time()
     logger.info(f"Full model training completed in {totalEnd - totalStart} seconds")
@@ -411,7 +412,6 @@ def main():
     parser.add_argument('--random_seed', type=int, default=0, help='Random seed.')
     # Logging
     parser.add_argument('--wandb', action='store_true', help='Log to Weights&bBiases.')
-    parser.add_argument('--log_every', type=int, default=100, help='Log every log_every steps.')
     args = parser.parse_args()
 
     if jax.process_index() == 0:
