@@ -24,6 +24,7 @@ import sys
 import time
 import socket
 import flaxmodels as fm
+import json
 
 
 def setupLogger():
@@ -165,9 +166,12 @@ def eval_step(state, batch):
 
 
 def train_and_evaluate(config):
+    """
+    Runs all the heavy processing
+    """
     logger = setupLogger()
-    tStart = time.time()
-    logger.info(f"Starting train_and_evaluate method at time: {tStart}")
+    totalStart = time.time()
+    logger.info(f"Starting train_and_evaluate method at time: {totalStart}")
     num_devices = jax.device_count()
     logger.info(f"Hostname: {socket.gethostname()} using {num_devices} GPU devices")
     logger.info(f"Local devices: {jax.local_devices()}")
@@ -292,16 +296,19 @@ def train_and_evaluate(config):
     #--------------------------------------
 
     best_val_acc = 0.0
-
+    ### Time summary will be dumped as a json at ckpt_dir in the format of
+    timeSummary = []
     for epoch in range(epoch_offset, config.num_epochs):
-        logger.info(f"Training for epoch number: {epoch}")
-
-        pbar = tqdm(total=dataset_size)
+        logger.info(f"Starting training for epoch number: {epoch}")
+        thisEpoch = {"epoch_num": 0, "epoch_time": 0.0, "valid_time": 0.0, "train_time": 0.0}
+        thisEpoch["epoch_num"] = epoch
+        #pbar = tqdm(total=dataset_size)
 
         accuracy = 0.0
         n = 0
+        epochStart = time.time()
         for image, label in ds_train.as_numpy_iterator():
-            pbar.update(num_devices * config.batch_size)
+            #pbar.update(num_devices * config.batch_size)
             image = image.astype(dtype)
             label = label.astype(dtype)
 
@@ -326,8 +333,9 @@ def train_and_evaluate(config):
                     wandb.log({'training/accuracy': jnp.mean(metrics['accuracy']).item()}, step=step)
             step += 1
 
-        pbar.close()
+        #pbar.close()
         accuracy /= n
+        thisEpoch["train_time"] = round(time.time() - epochStart, 3)
 
         print(f'Epoch: {epoch}')
         print('Training accuracy:', jnp.mean(accuracy))
@@ -339,6 +347,7 @@ def train_and_evaluate(config):
 
         accuracy = 0.0
         n = 0
+        validStart = time.time()
         for image, label in ds_val.as_numpy_iterator():
             image = image.astype(dtype)
             label = label.astype(dtype)
@@ -356,6 +365,7 @@ def train_and_evaluate(config):
         accuracy /= n
         print('Validation accuracy:', jnp.mean(accuracy))
         accuracy = jnp.mean(accuracy).item()
+        thisEpoch["valid_time"] = round(time.time() - validStart, 3)
 
         if accuracy > best_val_acc:
             best_val_acc = accuracy
@@ -365,8 +375,16 @@ def train_and_evaluate(config):
         if config.wandb:
             wandb.log({'validation/accuracy': jnp.mean(accuracy).item()}, step=step)
 
-    tEnd = time.time()
-    logger.info(f"Training completed {tEnd - tStart} seconds")
+        thisEpoch["epoch_time"] = round(time.time() - epochStart, 3)
+        logger.info(f"Time performance summary for this EPOCH: {thisEpoch}\n")
+        timeSummary.append(thisEpoch)
+
+    totalEnd = time.time()
+    logger.info(f"Full model training completed in {totalEnd - totalStart} seconds")
+    fileSummary = os.path.join(config.ckpt_dir, "summary.json")
+    logger.info(f"Dumping time summary at: {fileSummary}")
+    with open(fileSummary, "w") as jObj:
+        json.dump(timeSummary, jObj, indent=2)
 
 
 def main():
@@ -402,11 +420,7 @@ def main():
             os.makedirs(args.ckpt_dir)
 
         if args.wandb:
-            wandb.init(entity='matthias-wright',
-                       project='imagenette',
-                       group=args.group,
-                       config=args,
-                       name=args.name,
+            wandb.init(config=args,
                        dir=os.path.join(args.work_dir, args.group, args.name))
 
     train_and_evaluate(args)
