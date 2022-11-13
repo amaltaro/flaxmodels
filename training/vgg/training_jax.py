@@ -1,3 +1,7 @@
+"""
+Multi-GPU training for the VGG-16 architecture with the Jax framework.
+"""
+
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import jax
