@@ -1,3 +1,7 @@
+"""
+Multi-GPU training for the VGG-16 architecture with the PyTorch framework.
+"""
+
 import argparse
 import os
 import random
@@ -21,12 +25,11 @@ import torchvision.transforms as transforms
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import Subset
 
-model_names = sorted(name for name in models.__dict__
-    if name.islower() and not name.startswith("__")
-    and callable(models.__dict__[name]))
+model_names = [name for name in models.list_models()]
+
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data', metavar='DIR', nargs='?', default='/afs/crc.nd.edu/user/a/amaltar2/jax_tests/tensorflow_datasets/imagenette/320px-v2',
+parser.add_argument('data', metavar='DIR', nargs='?', default='/afs/crc.nd.edu/user/a/amaltar2/pytorch_tests/tensorflow_datasets/imagenette/320px-v2',
                     help='path to dataset (default: imagenet)')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='vgg16',
                     choices=model_names,
@@ -35,13 +38,13 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='vgg16',
                         ' (default: vgg16)')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=50, type=int, metavar='N',
+parser.add_argument('--num_epochs', default=50, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=128, type=int,
+parser.add_argument('-b', '--batch_size', default=128, type=int,
                     metavar='N',
-                    help='mini-batch size (default: 256), this is the total '
+                    help='Batch size (default: 128). This is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
@@ -271,7 +274,7 @@ def main_worker(gpu, ngpus_per_node, args):
         validate(val_loader, model, criterion, args)
         return
 
-    for epoch in range(args.start_epoch, args.epochs):
+    for epoch in range(args.start_epoch, args.num_epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
 ##################################################################################
