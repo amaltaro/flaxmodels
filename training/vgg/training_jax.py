@@ -386,9 +386,9 @@ def train_and_evaluate(config):
 
     totalEnd = time.time()
     logger.info(f"Full model training completed in {totalEnd - totalStart} seconds")
-    fileSummary = os.path.join(config.ckpt_dir, "summary.json")
-    logger.info(f"Dumping time summary at: {fileSummary}")
-    with open(fileSummary, "w") as jObj:
+    fileName = os.path.join(config.work_dir, f"{config.name}.json")
+    logger.info(f"Dumping time summary at: {fileName}")
+    with open(fileName, "w") as jObj:
         json.dump(timeSummary, jObj, indent=2)
 
 
