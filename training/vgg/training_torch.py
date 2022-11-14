@@ -359,7 +359,7 @@ def main_worker(gpu, ngpus_per_node, args, logger):
         ##################################################################################
         epochStart = time.time()
         acc = train(train_loader, model, criterion, optimizer, epoch, device, args)
-        thisEpoch["training/accuracy"] = "%.3f" % acc
+        thisEpoch["training/accuracy"] = float("%.3f" % acc)
         thisEpoch["train_time"] = round(time.time() - epochStart, 3)
 
         ##################################################################################
@@ -368,7 +368,7 @@ def main_worker(gpu, ngpus_per_node, args, logger):
         # evaluate on validation set
         validStart = time.time()
         acc1 = validate(val_loader, model, criterion, args)
-        thisEpoch["validation/accuracy"] = "%.3f" % acc1
+        thisEpoch["validation/accuracy"] = float("%.3f" % acc1)
         thisEpoch["valid_time"] = round(time.time() - validStart, 3)
 
         #scheduler.step()
