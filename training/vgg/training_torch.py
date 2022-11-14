@@ -12,6 +12,7 @@ import json
 import logging
 import socket
 import platform
+import wandb
 from enum import Enum
 
 import torch
@@ -53,6 +54,8 @@ def main():
     parser.add_argument('data', metavar='DIR', nargs='?',
                         default='/afs/crc.nd.edu/user/a/amaltar2/pytorch_tests/tensorflow_datasets/imagenette/320px-v2',
                         help='path to dataset (default: imagenet)')
+    parser.add_argument('--work_dir', default='/afs/crc.nd.edu/user/a/amaltar2/pytorch_tests/imagenette',
+                        type=str, help='Directory for logging and checkpoints.')
     parser.add_argument('-a', '--arch', metavar='ARCH', default='vgg16',
                         choices=model_names,
                         help='model architecture: ' +
@@ -102,6 +105,7 @@ def main():
                              'fastest way to use PyTorch for either single node or '
                              'multi node data parallel training')
     parser.add_argument('--dummy', action='store_true', help="use fake data to benchmark")
+    parser.add_argument('--wandb', action='store_true', help='Log to Weights&bBiases.')
     args = parser.parse_args()
 
     logger = setupLogger()
@@ -133,8 +137,14 @@ def main():
     else:
         ngpus_per_node = 1
 
-    # measure total time
-    totalStart = time.time()
+    if args.wandb:
+        wandb.init(config=args,
+                   dir=os.path.join(args.work_dir, args.name))
+        # make sure the required directory exists
+        try:
+            os.mkdir(os.path.join(args.work_dir, args.name))
+        except FileExistsError:
+            pass
 
     if args.multiprocessing_distributed:
         logger.info(f"Executing distributed multiprocessing training with {ngpus_per_node} GPUs")
@@ -176,6 +186,7 @@ def main_worker(gpu, ngpus_per_node, args, logger):
     global best_acc1
     args.gpu = gpu
     totalStart = time.time()
+    logger.info(f"Starting model training: {totalStart}")
 
     if args.gpu is not None:
         logger.info("=> using specific GPU: {} for training".format(args.gpu))
@@ -376,19 +387,20 @@ def main_worker(gpu, ngpus_per_node, args, logger):
                 'best_acc1': best_acc1,
                 'optimizer' : optimizer.state_dict(),
                 #'scheduler' : scheduler.state_dict()
-            }, is_best)
+                }, is_best, base_path=os.path.join(args.work_dir, args.name))
 
         # compute total time taken to complete an epoch run
         thisEpoch["epoch_time"] = round(time.time() - epochStart, 3)
         logger.info(f"Time performance summary for this EPOCH: {thisEpoch}\n")
         timeSummary.append(thisEpoch)
+        if args.wandb:
+            wandb.log(thisEpoch)
 
     totalEnd = time.time()
     logger.info(f"Full model training completed in {totalEnd - totalStart} seconds")
-    fileName = f"{args.name}.json"
-    fileSummary = os.path.join("/afs/crc.nd.edu/user/a/amaltar2/pytorch_tests", fileName)
-    logger.info(f"Dumping time summary at: {fileSummary}")
-    with open(fileSummary, "w") as jObj:
+    fileName = os.path.join(args.work_dir, f"{args.name}.json")
+    logger.info(f"Dumping execution summary at: {fileName}")
+    with open(fileName, "w") as jObj:
         json.dump(timeSummary, jObj, indent=2)
 
 
@@ -506,10 +518,13 @@ def validate(val_loader, model, criterion, args):
     return top1.avg
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-    torch.save(state, filename)
+def save_checkpoint(state, is_best, base_path):
+
+    fileName = os.path.join(base_path, "checkpoint.pth.tar")
+    torch.save(state, fileName)
     if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
+        bestFileName = os.path.join(base_path, "model_best.pth.tar")
+        shutil.copyfile(fileName, bestFileName)
 
 class Summary(Enum):
     NONE = 0
