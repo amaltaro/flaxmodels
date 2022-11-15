@@ -1,14 +1,10 @@
-"""
-Multi-GPU training for the VGG-16 architecture with the Jax framework.
-"""
-
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import jax
 import jax.numpy as jnp
 from jax.lib import xla_bridge
 import flax
-from flax.optim import dynamic_scale as dynamic_scale_lib
+#from flax.optim import dynamic_scale as dynamic_scale_lib
 import flax.linen as nn
 from flax.training import train_state
 from flax.training import common_utils
@@ -27,6 +23,7 @@ import logging
 import sys
 import time
 import socket
+# sys.path.append("../..")
 import flaxmodels as fm
 import json
 
@@ -81,7 +78,7 @@ class TrainState(train_state.TrainState):
         dynamic_scale (dynamic_scale_lib.DynamicScale): Dynamic loss scaling for mixed precision gradients.
         epoch (int): Current epoch.
     """
-    dynamic_scale: dynamic_scale_lib.DynamicScale
+    #dynamic_scale: dynamic_scale_lib.DynamicScale
     epoch: int
 
 
@@ -119,7 +116,7 @@ def configure_dataloader(ds, prerocess, num_devices, batch_size):
     ds = ds.cache()
     ds = ds.shuffle(buffer_size=1000)
     ds = ds.map(lambda x, y: (prerocess(x), y))
-    ds = ds.batch(batch_size=num_devices * batch_size)
+    ds = ds.batch(batch_size=batch_size)
     ds = ds.prefetch(buffer_size=tf.data.AUTOTUNE)
     return ds
 
@@ -133,33 +130,33 @@ def train_step(state, batch, rng):
         loss = cross_entropy_loss(logits, batch['label'])
         return loss, logits
 
-    dynamic_scale = state.dynamic_scale
+    #dynamic_scale = state.dynamic_scale
 
-    if dynamic_scale:
-        grad_fn = dynamic_scale.value_and_grad(loss_fn, has_aux=True, axis_name='batch')
-        dynamic_scale, is_fin, aux, grads = grad_fn(state.params)
+    #if dynamic_scale:
+    #    grad_fn = dynamic_scale.value_and_grad(loss_fn, has_aux=True, axis_name='batch')
+    #    dynamic_scale, is_fin, aux, grads = grad_fn(state.params)
         # dynamic loss takes care of averaging gradients across replicas
-    else:
-        grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-        aux, grads = grad_fn(state.params)
-        # Re-use same axis_name as in the call to `pmap(...train_step...)` below.
-        grads = jax.lax.pmean(grads, axis_name='batch')
+    #else:
+    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    aux, grads = grad_fn(state.params)
+    # Re-use same axis_name as in the call to `pmap(...train_step...)` below.
+    grads = jax.lax.pmean(grads, axis_name='batch')
 
     logits = aux[1]
     metrics = compute_metrics(logits, batch['label'])
 
     new_state = state.apply_gradients(grads=grads)
-    
-    if dynamic_scale:
-        # if is_fin == False the gradients contain Inf/NaNs and optimizer state and
-        # params should be restored (= skip this step).
-        new_state = new_state.replace(opt_state=jax.tree_multimap(functools.partial(jnp.where, is_fin),
-                                                                  new_state.opt_state,
-                                                                  state.opt_state),
-                                      params=jax.tree_multimap(functools.partial(jnp.where, is_fin),
-                                                               new_state.params,
-                                                               state.params))
-        metrics['scale'] = dynamic_scale.scale
+
+   # if dynamic_scale:
+    #    # if is_fin == False the gradients contain Inf/NaNs and optimizer state and
+    #    # params should be restored (= skip this step).
+    #    new_state = new_state.replace(opt_state=jax.tree_multimap(functools.partial(jnp.where, is_fin),
+    #                                                              new_state.opt_state,
+    #                                                              state.opt_state),
+    #                                  params=jax.tree_multimap(functools.partial(jnp.where, is_fin),
+    #                                                           new_state.params,
+    #                                                           state.params))
+    #    metrics['scale'] = dynamic_scale.scale
 
     return new_state, metrics
 
@@ -184,25 +181,31 @@ def train_and_evaluate(config):
     #--------------------------------------
     # Data
     #--------------------------------------
+    #normalize = tf.keras.layers.Normalization(mean=[0.485, 0.456, 0.406],variance=tf.math.square([0.229, 0.224, 0.225]))
     def train_prerocess(x):
         x = tf.image.random_crop(x, size=(config.img_size, config.img_size, config.img_channels))
-        x = tf.image.random_flip_up_down(x)
+        #x = tf.image.random_flip_up_down(x)
         x = tf.image.random_flip_left_right(x)
         # Cast to float because if the image has data type int, the following augmentations will convert it
         # to float then apply the transformations and convert it back to int.
         x = tf.cast(x, dtype='float32')
-        x = tf.image.random_brightness(x, max_delta=0.5)
-        x = tf.image.random_contrast(x, lower=0.1, upper=1.0)
-        x = tf.image.random_hue(x, max_delta=0.5)
-        x = (x - 127.5) / 127.5 
+        #x = tf.image.random_brightness(x, max_delta=0.5)
+        #x = tf.image.random_contrast(x, lower=0.1, upper=1.0)
+        #x = tf.image.random_hue(x, max_delta=0.5)
+        #x = (x - 127.5) / 127.5
+        x = x / 255
+
+        #x = normalize(x)
         return x
 
     def val_prerocess(x):
-        x = tf.expand_dims(x, axis=0)
-        x = tf.image.random_crop(x, size=(x.shape[0], config.img_size, config.img_size, config.img_channels))
-        x = tf.squeeze(x, axis=0)
+        #x = tf.expand_dims(x, axis=0)
+        x = tf.image.random_crop(x, size=(config.img_size, config.img_size, config.img_channels))#x = tf.image.random_crop(x, size=(x.shape[0], config.img_size, config.img_size, config.img_channels))
+        #x = tf.squeeze(x, axis=0)
         x = tf.cast(x, dtype='float32')
-        x = (x - 127.5) / 127.5 
+        #x = (x - 127.5) / 127.5
+        x = x / 255
+        #x = normalize(x)
         return x
 
     logger.info(f"Loading train->imagenette/320px-v2")
@@ -215,7 +218,7 @@ def train_and_evaluate(config):
     ds_val = tfds.load('imagenette/320px-v2',
                        split='validation',
                        as_supervised=True,
-                       shuffle_files=True,
+                       shuffle_files=False,
                        data_dir=config.data_dir)
 
     dataset_size = ds_train.__len__().numpy()
@@ -235,11 +238,11 @@ def train_and_evaluate(config):
     else:
         dtype = jnp.float32
 
-    platform = jax.local_devices()[0].platform
-    if config.mixed_precision and platform == 'gpu':
-        dynamic_scale = dynamic_scale_lib.DynamicScale()
-    else:
-        dynamic_scale = None
+    #platform = jax.local_devices()[0].platform
+    #if config.mixed_precision and platform == 'gpu':
+    #    dynamic_scale = dynamic_scale_lib.DynamicScale()
+    #else:
+    #    dynamic_scale = None
 
 
     #--------------------------------------
@@ -252,10 +255,10 @@ def train_and_evaluate(config):
         model = fm.VGG16(output='log_softmax', pretrained=None, num_classes=config.num_classes, dtype=dtype)
     elif config.arch == 'vgg19':
         model = fm.VGG19(output='log_softmax', pretrained=None, num_classes=config.num_classes, dtype=dtype)
-    
+
     init_rngs = {'params': init_rng, 'dropout': init_rng_dropout}
     params = model.init(init_rngs, jnp.ones((1, config.img_size, config.img_size, config.img_channels), dtype=dtype))
-    
+
     #--------------------------------------
     # Initialize Optimizer
     #--------------------------------------
@@ -263,19 +266,19 @@ def train_and_evaluate(config):
 
     logger.info(f"Initializing Optimizer with steps_per_epoch: {steps_per_epoch}")
 
-    learning_rate_fn = lr_schedule.create_cosine_learning_rate_schedule(config.learning_rate,
-                                                                        steps_per_epoch,
-                                                                        config.num_epochs - config.warmup_epochs,
-                                                                        config.warmup_epochs)
+    #learning_rate_fn = lr_schedule.create_cosine_learning_rate_schedule(config.learning_rate,
+    #                                                                    steps_per_epoch,
+    #                                                                    config.num_epochs - config.warmup_epochs,
+    #                                                                    config.warmup_epochs)
 
-    tx = optax.adam(learning_rate=learning_rate_fn)
+    tx = optax.adam(learning_rate=config.learning_rate)  #tx = optax.adam(learning_rate=learning_rate_fn)
 
     state = TrainState.create(apply_fn=model.apply,
                               params=params,
                               tx=tx,
-                              dynamic_scale=dynamic_scale,
+                              #dynamic_scale=dynamic_scale,
                               epoch=0)
-    
+
     step = 0
     epoch_offset = 0
     if config.resume:
@@ -283,9 +286,9 @@ def train_and_evaluate(config):
         state = restore_checkpoint(state, ckpt_path)
         step = jax.device_get(state.step)
         epoch_offset = jax.device_get(state.epoch)
-    
+
     state = flax.jax_utils.replicate(state)
-    
+
     #--------------------------------------
     # Create train and eval steps
     #--------------------------------------
@@ -295,7 +298,7 @@ def train_and_evaluate(config):
     p_eval_step = jax.pmap(eval_step, axis_name='batch')
 
     #--------------------------------------
-    # Training 
+    # Training
     #--------------------------------------
 
     best_val_acc = 0.0
@@ -342,9 +345,9 @@ def train_and_evaluate(config):
 
         print(f'Epoch: {epoch}')
         print('Training accuracy:', jnp.mean(accuracy))
-        
+
         #--------------------------------------
-        # Validation 
+        # Validation
         #--------------------------------------
         logger.info(f"Validation for epoch number: {epoch}")
 
@@ -356,7 +359,7 @@ def train_and_evaluate(config):
             label = label.astype(dtype)
             if image.shape[0] % num_devices != 0:
                 continue
-            
+
             # Reshape images from [num_devices * batch_size, height, width, img_channels]
             # to [num_devices, batch_size, height, width, img_channels].
             # The first dimension will be mapped across devices with jax.pmap.
@@ -404,10 +407,9 @@ def main():
     # Training
     parser.add_argument('--arch', type=str, default='vgg16', choices=['vgg16', 'vgg19'], help='Architecture.')
     parser.add_argument('--resume', action='store_true', help='Resume training from best checkpoint.')
-    parser.add_argument('--num_epochs', type=int, default=200, help='Number of epochs.')
+    parser.add_argument('--num_epochs', type=int, default=50, help='Number of epochs.')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate.')
-    parser.add_argument('--warmup_epochs', type=int, default=9,
-                        help='Number of warmup epochs with lower learning rate.')
+    parser.add_argument('--warmup_epochs', type=int, default=0, help='Number of warmup epochs with lower learning rate.') # no warmup epochs
     parser.add_argument('--batch_size', type=int, default=128, help='Batch size.')
     parser.add_argument('--num_classes', type=int, default=10, help='Number of classes.')
     parser.add_argument('--img_size', type=int, default=224, help='Image size.')
@@ -416,6 +418,7 @@ def main():
     parser.add_argument('--random_seed', type=int, default=0, help='Random seed.')
     # Logging
     parser.add_argument('--wandb', action='store_true', help='Log to Weights&bBiases.')
+    parser.add_argument('--log_every', type=int, default=100, help='Log every log_every steps.')
     args = parser.parse_args()
 
     if jax.process_index() == 0:
