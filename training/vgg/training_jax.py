@@ -211,7 +211,7 @@ def train_and_evaluate(config):
         train_sampler = None
         val_sampler = None
 
-    gpu_batch_size = config.batch_size / num_devices
+    gpu_batch_size = config.batch_size // num_devices
     logger.info(f"Actual GPU batch size set to: {gpu_batch_size}")
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=gpu_batch_size, shuffle=(train_sampler is None),

@@ -333,7 +333,7 @@ def main_worker(gpu, ngpus_per_node, args, logger):
     #   num_workers=4 --> 118 secs **
     #   num_workers=6 --> 120 secs
     #   num_workers=8 --> 123 secs
-    gpu_batch_size = args.batch_size / ngpus_per_node
+    gpu_batch_size = args.batch_size // ngpus_per_node
     logger.info(f"Actual GPU batch size set to: {gpu_batch_size}")
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=gpu_batch_size, shuffle=(train_sampler is None),
