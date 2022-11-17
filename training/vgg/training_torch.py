@@ -51,8 +51,8 @@ def main():
 
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
     parser.add_argument('--name', type=str, default='test', help='Name of this experiment.')
-    parser.add_argument('data', metavar='DIR', nargs='?',
-                        default='/afs/crc.nd.edu/user/a/amaltar2/pytorch_tests/tensorflow_datasets/imagenette/320px-v2',
+    parser.add_argument('--data', metavar='DIR', nargs='?',
+                        default='/afs/crc.nd.edu/user/a/amaltar2/tensorflow_datasets/imagenette/320px-v2',
                         help='path to dataset (default: imagenet)')
     parser.add_argument('--work_dir', default='/afs/crc.nd.edu/user/a/amaltar2/pytorch_tests/imagenette',
                         type=str, help='Directory for logging and checkpoints.')

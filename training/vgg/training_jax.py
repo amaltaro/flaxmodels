@@ -178,8 +178,8 @@ def train_and_evaluate(config):
     #--------------------------------------
     logger.info(f"Configuring dataloader")
 
-    traindir = os.path.join(config.data_dir, 'train')
-    valdir = os.path.join(config.data_dir, 'val')
+    traindir = os.path.join(config.data, 'train')
+    valdir = os.path.join(config.data, 'val')
 
 
     # Define the training dataset
@@ -405,10 +405,9 @@ def main():
     # Paths
     parser.add_argument('--work_dir', default='/afs/crc.nd.edu/user/a/amaltar2/jax_tests/imagenette',
                         type=str, help='Directory for logging and checkpoints.')
-    parser.add_argument('--data_dir', default='/afs/crc.nd.edu/user/a/amaltar2/jax_tests/tensorflow_datasets',
-                        type=str, help='Directory for storing data.')
+    parser.add_argument('--data', default='/afs/crc.nd.edu/user/a/amaltar2/tensorflow_datasets/imagenette/320px-v2',
+                        help='path to dataset (default: imagenet)')
     parser.add_argument('--name', type=str, default='test', help='Name of this experiment.')
-    parser.add_argument('--group', type=str, default='default', help='Group name of this experiment.')
     # Training
     parser.add_argument('--arch', type=str, default='vgg16', choices=['vgg16', 'vgg19'], help='Architecture.')
     parser.add_argument('--workers', default=4, type=int,
@@ -429,13 +428,13 @@ def main():
     args = parser.parse_args()
 
     if jax.process_index() == 0:
-        args.ckpt_dir = os.path.join(args.work_dir, args.group, args.name, 'checkpoints')
+        args.ckpt_dir = os.path.join(args.work_dir, args.name, 'checkpoints')
         if not os.path.exists(args.ckpt_dir):
             os.makedirs(args.ckpt_dir)
 
         if args.wandb:
             wandb.init(config=args,
-                       dir=os.path.join(args.work_dir, args.group, args.name))
+                       dir=os.path.join(args.work_dir, args.name))
 
     train_and_evaluate(args)
 
