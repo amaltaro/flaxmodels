@@ -176,20 +176,15 @@ def train_and_evaluate(config):
     #--------------------------------------
     # Data
     #--------------------------------------
-
-
-
-
-
     logger.info(f"Configuring dataloader")
-
-
 
     traindir = os.path.join(config.data_dir, 'train')
     valdir = os.path.join(config.data_dir, 'val')
 
 
     # Define the training dataset
+    # NOTE: we do not normalize images at the pre-processing step
+    # because it's already embedded in the Jax model
     train_dataset = datasets.ImageFolder(
         traindir,
         transforms.Compose([
@@ -206,21 +201,25 @@ def train_and_evaluate(config):
             transforms.CenterCrop(224),
             transforms.ToTensor(),
         ]))
-        
-    if num_devices>1:
+
+    # NOTE: DistributedSampler is only used when running distributed training,
+    # hence using GPUs in multiple nodes.
+    if False:  # Just so we remain consistent with the PyTorch script implementation
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
         val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False, drop_last=True)
     else:
         train_sampler = None
         val_sampler = None
 
+    gpu_batch_size = config.batch_size / num_devices
+    logger.info(f"Actual GPU batch size set to: {gpu_batch_size}")
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=config.batch_size, shuffle=(train_sampler is None),
-        num_workers=4, pin_memory=True, sampler=train_sampler)
+        train_dataset, batch_size=gpu_batch_size, shuffle=(train_sampler is None),
+        num_workers=config.workers, pin_memory=True, sampler=train_sampler)
 
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=config.batch_size, shuffle=False,
-        num_workers=4, pin_memory=True, sampler=val_sampler)
+        val_dataset, batch_size=gpu_batch_size, shuffle=False,
+        num_workers=config.workers, pin_memory=True, sampler=val_sampler)
 
     dataset_size = len(train_loader)
 
@@ -314,13 +313,9 @@ def train_and_evaluate(config):
         epochStart = time.time()
 
         for image, label in train_loader:
-
             image = image.numpy().astype(dtype)
-
             image = jnp.moveaxis(image,(0,2,3,1),(0,1,2,3))
-            
             #pbar.update(num_devices * config.batch_size)
-
             label = label.numpy().astype(dtype)
 
             if image.shape[0] % num_devices != 0:
@@ -332,8 +327,6 @@ def train_and_evaluate(config):
             # The first dimension will be mapped across devices with jax.pmap.
             image = jnp.reshape(image, (num_devices, -1) + image.shape[1:])
             label = jnp.reshape(label, (num_devices, -1) + label.shape[1:])
-
-            
 
             rng, _ = jax.random.split(rng)
             rngs = jax.random.split(rng, num=num_devices)
@@ -418,6 +411,8 @@ def main():
     parser.add_argument('--group', type=str, default='default', help='Group name of this experiment.')
     # Training
     parser.add_argument('--arch', type=str, default='vgg16', choices=['vgg16', 'vgg19'], help='Architecture.')
+    parser.add_argument('--workers', default=4, type=int,
+                        help='number of data loading workers (default: 4)')
     parser.add_argument('--resume', action='store_true', help='Resume training from best checkpoint.')
     parser.add_argument('--num_epochs', type=int, default=50, help='Number of epochs.')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate.')
