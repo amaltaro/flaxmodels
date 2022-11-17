@@ -1,5 +1,5 @@
 import tensorflow as tf
-import tensorflow_datasets as tfds
+#import tensorflow_datasets as tfds
 import jax
 import jax.numpy as jnp
 from jax.lib import xla_bridge
@@ -23,9 +23,12 @@ import logging
 import sys
 import time
 import socket
-# sys.path.append("../..")
+sys.path.append("../..")
 import flaxmodels as fm
 import json
+import torchvision.transforms as transforms
+import torchvision.datasets as datasets
+import torch
 
 
 def setupLogger():
@@ -111,18 +114,9 @@ def save_checkpoint(state, step_or_metric, path):
         checkpoints.save_checkpoint(path, state, step_or_metric, keep=3)
 
 
-def configure_dataloader(ds, prerocess, num_devices, batch_size):
-    # https://www.tensorflow.org/tutorials/load_data/images
-    ds = ds.cache()
-    ds = ds.shuffle(buffer_size=1000)
-    ds = ds.map(lambda x, y: (prerocess(x), y))
-    ds = ds.batch(batch_size=batch_size)
-    ds = ds.prefetch(buffer_size=tf.data.AUTOTUNE)
-    return ds
 
 
 def train_step(state, batch, rng):
-
     def loss_fn(params):
         logits = state.apply_fn(params,
                                 batch['image'],
@@ -178,54 +172,57 @@ def train_and_evaluate(config):
     logger.info(f"Local devices: {jax.local_devices()}")
     logger.info(f"Environment info: {jax.print_environment_info()}")
 
+
     #--------------------------------------
     # Data
     #--------------------------------------
-    #normalize = tf.keras.layers.Normalization(mean=[0.485, 0.456, 0.406],variance=tf.math.square([0.229, 0.224, 0.225]))
-    def train_prerocess(x):
-        x = tf.image.random_crop(x, size=(config.img_size, config.img_size, config.img_channels))
-        #x = tf.image.random_flip_up_down(x)
-        x = tf.image.random_flip_left_right(x)
-        # Cast to float because if the image has data type int, the following augmentations will convert it
-        # to float then apply the transformations and convert it back to int.
-        x = tf.cast(x, dtype='float32')
-        #x = tf.image.random_brightness(x, max_delta=0.5)
-        #x = tf.image.random_contrast(x, lower=0.1, upper=1.0)
-        #x = tf.image.random_hue(x, max_delta=0.5)
-        #x = (x - 127.5) / 127.5
-        x = x / 255
 
-        #x = normalize(x)
-        return x
 
-    def val_prerocess(x):
-        #x = tf.expand_dims(x, axis=0)
-        x = tf.image.random_crop(x, size=(config.img_size, config.img_size, config.img_channels))#x = tf.image.random_crop(x, size=(x.shape[0], config.img_size, config.img_size, config.img_channels))
-        #x = tf.squeeze(x, axis=0)
-        x = tf.cast(x, dtype='float32')
-        #x = (x - 127.5) / 127.5
-        x = x / 255
-        #x = normalize(x)
-        return x
 
-    logger.info(f"Loading train->imagenette/320px-v2")
-    ds_train = tfds.load('imagenette/320px-v2',
-                         split='train',
-                         as_supervised=True,
-                         shuffle_files=True,
-                         data_dir=config.data_dir)
-    logger.info(f"Loading validation->imagenette/320px-v2")
-    ds_val = tfds.load('imagenette/320px-v2',
-                       split='validation',
-                       as_supervised=True,
-                       shuffle_files=False,
-                       data_dir=config.data_dir)
 
-    dataset_size = ds_train.__len__().numpy()
 
     logger.info(f"Configuring dataloader")
-    ds_train = configure_dataloader(ds_train, train_prerocess, num_devices, config.batch_size)
-    ds_val = configure_dataloader(ds_val, val_prerocess, num_devices, config.batch_size)
+
+
+
+    traindir = os.path.join(config.data_dir, 'train')
+    valdir = os.path.join(config.data_dir, 'val')
+
+
+    # Define the training dataset
+    train_dataset = datasets.ImageFolder(
+        traindir,
+        transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+        ]))
+
+    # Define the validation dataset
+    val_dataset = datasets.ImageFolder(
+        valdir,
+        transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+        ]))
+        
+    if num_devices>1:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False, drop_last=True)
+    else:
+        train_sampler = None
+        val_sampler = None
+
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=config.batch_size, shuffle=(train_sampler is None),
+        num_workers=4, pin_memory=True, sampler=train_sampler)
+
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=config.batch_size, shuffle=False,
+        num_workers=4, pin_memory=True, sampler=val_sampler)
+
+    dataset_size = len(train_loader)
 
 
     #--------------------------------------
@@ -304,6 +301,7 @@ def train_and_evaluate(config):
     best_val_acc = 0.0
     ### Time summary will be dumped as a json at ckpt_dir in the format of
     timeSummary = []
+    i = 0
     for epoch in range(epoch_offset, config.num_epochs):
         logger.info(f"Starting training for epoch number: {epoch}")
         #thisEpoch = {"epoch_num": 0, "epoch_time": 0.0, "valid_time": 0.0, "train_time": 0.0}
@@ -315,10 +313,15 @@ def train_and_evaluate(config):
         n = 0
         epochStart = time.time()
 
-        for image, label in ds_train.as_numpy_iterator():
+        for image, label in train_loader:
+
+            image = image.numpy().astype(dtype)
+
+            image = jnp.moveaxis(image,(0,2,3,1),(0,1,2,3))
+            
             #pbar.update(num_devices * config.batch_size)
-            image = image.astype(dtype)
-            label = label.astype(dtype)
+
+            label = label.numpy().astype(dtype)
 
             if image.shape[0] % num_devices != 0:
                 # Batch size must be divisible by the number of devices
@@ -329,6 +332,8 @@ def train_and_evaluate(config):
             # The first dimension will be mapped across devices with jax.pmap.
             image = jnp.reshape(image, (num_devices, -1) + image.shape[1:])
             label = jnp.reshape(label, (num_devices, -1) + label.shape[1:])
+
+            
 
             rng, _ = jax.random.split(rng)
             rngs = jax.random.split(rng, num=num_devices)
@@ -354,9 +359,11 @@ def train_and_evaluate(config):
         accuracy = 0.0
         n = 0
         validStart = time.time()
-        for image, label in ds_val.as_numpy_iterator():
-            image = image.astype(dtype)
-            label = label.astype(dtype)
+        for image, label in val_loader:
+
+            image = image.numpy().astype(dtype)
+            image = jnp.moveaxis(image,(0,2,3,1),(0,1,2,3))
+            label = label.numpy().astype(dtype)
             if image.shape[0] % num_devices != 0:
                 continue
 
@@ -365,6 +372,11 @@ def train_and_evaluate(config):
             # The first dimension will be mapped across devices with jax.pmap.
             image = jnp.reshape(image, (num_devices, -1) + image.shape[1:])
             label = jnp.reshape(label, (num_devices, -1) + label.shape[1:])
+
+
+            print("image before loss",image.shape)
+            
+
             metrics = p_eval_step(state, {'image': image, 'label': label})
             accuracy += metrics['accuracy']
             n += 1

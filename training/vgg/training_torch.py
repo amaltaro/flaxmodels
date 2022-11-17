@@ -61,7 +61,7 @@ def main():
                         help='model architecture: ' +
                              ' | '.join(model_names) +
                              ' (default: vgg16)')
-    parser.add_argument('-j', '--workers', default=0, type=int, metavar='N',
+    parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
     parser.add_argument('--num_epochs', default=50, type=int, metavar='N',
                         help='number of total epochs to run')
@@ -312,8 +312,8 @@ def main_worker(gpu, ngpus_per_node, args, logger):
         val_dataset = datasets.ImageFolder(
             valdir,
             transforms.Compose([
-                #transforms.Resize(256),
-                transforms.RandomResizedCrop(224),#transforms.CenterCrop(224),
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
                 transforms.ToTensor(),
                 normalize,
             ]))
