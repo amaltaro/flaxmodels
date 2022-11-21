@@ -387,9 +387,9 @@ def main_worker(gpu, ngpus_per_node, args, logger):
                 'arch': args.arch,
                 'state_dict': model.state_dict(),
                 'best_acc1': best_acc1,
-                'optimizer' : optimizer.state_dict(),
+                'optimizer': optimizer.state_dict(),
                 #'scheduler' : scheduler.state_dict()
-                }, is_best, base_path=os.path.join(args.work_dir, args.name))
+                }, is_best, os.path.join(args.work_dir, args.name), logger)
 
         # compute total time taken to complete an epoch run
         thisEpoch["epoch_time"] = round(time.time() - epochStart, 3)
@@ -520,8 +520,11 @@ def validate(val_loader, model, criterion, args):
     return top1.avg
 
 
-def save_checkpoint(state, is_best, base_path):
-
+def save_checkpoint(state, is_best, base_path, logger):
+    # TODO: this checkpoint hurts the runtime evaluation pretty badly!
+    # Hence, we decided to momentarily disable it
+    logger.warning("Not saving and copying any checkpoints...")
+    return
     fileName = os.path.join(base_path, "checkpoint.pth.tar")
     torch.save(state, fileName)
     if is_best:

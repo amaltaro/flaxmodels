@@ -99,7 +99,7 @@ def restore_checkpoint(state, path):
     return checkpoints.restore_checkpoint(path, state)
 
 
-def save_checkpoint(state, step_or_metric, path):
+def save_checkpoint(state, step_or_metric, path, logger):
     """
     Saves a checkpoint from the given state.
 
@@ -109,6 +109,10 @@ def save_checkpoint(state, step_or_metric, path):
         path (str): Path to the checkpoint directory.
 
     """
+    # TODO: this checkpoint hurts the runtime evaluation pretty badly!
+    # Hence, we decided to momentarily disable it
+    logger.warning("Not saving and copying any checkpoints...")
+    return
     if jax.process_index() == 0:
         state = jax.device_get(jax.tree_map(lambda x: x[0], state))
         checkpoints.save_checkpoint(path, state, step_or_metric, keep=3)
@@ -381,7 +385,7 @@ def train_and_evaluate(config):
         if accuracy > best_val_acc:
             best_val_acc = accuracy
             state = dataclasses.replace(state, **{'step': flax.jax_utils.replicate(step), 'epoch': flax.jax_utils.replicate(epoch)})
-            save_checkpoint(state, jnp.mean(accuracy).item(), config.ckpt_dir)
+            save_checkpoint(state, jnp.mean(accuracy).item(), config.ckpt_dir, logger)
 
         # update validation accuracy for this epoch
         thisEpoch["validation/accuracy"] = jnp.mean(accuracy).item()
