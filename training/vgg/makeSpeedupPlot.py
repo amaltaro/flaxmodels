@@ -19,7 +19,7 @@ plt.bar(x+width+width, yPyTorch, width, color='orange')
 plt.bar(x+width+width+width, yIdeal, width, color='green')
 
 # setup axis
-plt.xticks(x+width+width, ['1 GPU', '2 GPUs', '4 GPUs'])
+plt.xticks(x+width+width, ['1', '2', '4'])
 plt.yticks(major_ticks)
 plt.yticks(minor_ticks, minor=True)
 plt.grid(which='both', linestyle='--', axis='y')
@@ -30,5 +30,6 @@ plt.xlim(0)
 plt.title('Speed-up ratio')
 plt.legend(["Jax", "PyTorch", "Ideal"])
 plt.ylabel("Speed-up ratio")
+plt.xlabel("Number of GPUs")
 
 plt.show()
